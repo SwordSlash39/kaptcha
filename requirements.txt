@@ -1,0 +1,7 @@
+litellm
+PyQt6
+PyQt6-WebEngine
+requests
+beautifulsoup4
+ddgs
+playwright
