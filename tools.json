@@ -1,0 +1,344 @@
+[
+    {
+        "type": "function",
+        "function": {
+            "name": "current_datetime",
+            "description": "Gets the current date and time.",
+            "parameters": {}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the internet for up-to-date information.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The search query."}
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "scrape_url",
+            "description": "Fast extraction of static text from a URL. Use this for quickly reading articles or wikis. DO NOT use this for interactive tasks, logins, or dynamic JS-heavy apps.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The website URL to read."}
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vault_change_directory",
+            "description": "Change the current directory (enter or exit a folder). Use '..' as the path to exit to the parent directory. Note you are ALREADY in /vault/ by default (e.g you should access vault.md with 'vault', not '/vault/vault'), unless you have changed it (use vault_get_working_directory tool to check if needed.)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "The folder name to enter, or '..' to go back up."}
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vault_get_working_directory",
+            "description": "Returns the current path you are in relative to /vault/. Use this if you are lost or need to confirm your current folder location.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vault_create_directory",
+            "description": "Create a new subdirectory inside your current location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dirname": {"type": "string", "description": "The name of the new folder."}
+                },
+                "required":["dirname"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vault_list_files",
+            "description": "List all files and folders in a directory. Crucial for seeing where you are.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subpath": {"type": "string", "description": "Optional subdirectory to look into. Defaults to '.' (your current directory)."}
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vault_read_file",
+            "description": "Read the text content of a specific file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "The name of the file to read (e.g., '_folder_info.txt')."}
+                },
+                "required": ["filename"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vault_write_file",
+            "description": "OVERWRITES a file with new content. Use this for creating new files, editing existing ones, or reformatting a note entirely.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "The name of the file to save to (must end in .md)."},
+                    "content": {"type": "string", "description": "The text content to save inside the file."}
+                },
+                "required":["filename", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vault_remove_file",
+            "description": "Permanently deletes a file. This will trigger a manual confirmation prompt for the user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "The name or relative path of the file to delete."}
+                },
+                "required": ["filename"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vault_remove_directory",
+            "description": "Permanently deletes an entire folder and everything inside it. This will trigger a manual confirmation prompt for the user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "dirname": {"type": "string", "description": "The name of the folder to delete."}
+                },
+                "required": ["dirname"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vault_append_file",
+            "description": "EXTENDS a file by adding text to the bottom. Use this for logs, journals, or adding a quick note to the end of a list without needing to read the whole file first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "The file to append to."},
+                    "content": {"type": "string", "description": "The text to add to the bottom."}
+                },
+                "required": ["filename", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vault_move_item",
+            "description": "Move or rename a file or folder. Use this to organize the vault or archive old notes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "The current path/name."},
+                    "destination": {"type": "string", "description": "The new path/name."}
+                },
+                "required":["source", "destination"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_wait",
+            "description": "Waits for a specified number of seconds. Use this when a webpage is actively loading, a progress bar is running, a game is starting up, or you are waiting for a transition animation to finish.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "seconds": { "type": "integer", "description": "Number of seconds to wait (e.g., 5, 10, 30)." }
+                },
+                "required": ["seconds"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_navigate",
+            "description": "Opens a URL in the browser.",
+            "parameters": {
+                "type": "object",
+                "properties": { "url": { "type": "string", "description": "The full HTTP URL." } },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_get_view",
+            "description": "Reads the current browser page. Returns a visual SCREENSHOT of the page alongside a text list of interactive elements with IDs. ALWAYS run this before clicking or typing.",
+            "parameters": { "type": "object", "properties": {} }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_click",
+            "description": "PRIMARY CLICK METHOD. Clicks an element in the browser by its numerical ID badge. You MUST run browser_get_view first to find the ID. ALWAYS use this instead of hover/grid clicking if the target has an ID, as it is much faster and more reliable. NOTE: Clicking on an element using this tool does NOT affect the hovered position set by browser_hover_grid.",
+            "parameters": {
+                "type": "object",
+                "properties": { "element_id": { "type": "integer", "description": "The ID number of the element to click." } },
+                "required": ["element_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_type",
+            "description": "Types text directly on the keyboard. NOTE: This does NOT target a specific element. You MUST use browser_click on the input field first to focus it, and THEN use this tool to type. Can optionally press Enter after typing.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "The text to type." },
+                    "press_enter": { "type": "boolean", "description": "Set to true to press Enter after typing (crucial for search bars)." }
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_scroll",
+            "description": "Scrolls the page up or down. NOTE: If you are in a web app with multiple panels (like an email client) and scrolling does nothing, it means the wrong panel is focused. You MUST use browser_click on a text element inside the pane you want to read FIRST to focus it, then try scrolling again.",
+            "parameters": {
+                "type": "object",
+                "properties": { 
+                    "direction": { "type": "string", "enum":["up", "down"], "description": "Direction to scroll." },
+                    "amount": { "type": "integer", "description": "Pixels to scroll. Default is 400. Use smaller values (100-200) for careful scrolling." }
+                },
+                "required": ["direction"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_hover_grid",
+            "description": "FALLBACK METHOD. Places a virtual cursor at the center of a specific grid cell on the screen. Format must be Row (A-P) and Column (1-26). ONLY use this if the button/element you want to interact with DOES NOT have a numerical ID badge. Run this to visually confirm alignment using browser_get_view, then you can follow up with browser_click_hovered. NOTE: You CANNOT click immediately after this. You MUST run browser_get_view right after hovering to visually confirm you are aiming correctly.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "grid_id": { "type": "string", "description": "The grid coordinate to hover, e.g., 'A1', 'C15', 'P26'." }
+                },
+                "required": ["grid_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_click_hovered",
+            "description": "Clicks the exact location of your currently placed virtual cursor. STRICT RULE: You are FORBIDDEN from calling this immediately after browser_hover_grid. You MUST call browser_get_view in between to visually confirm the cursor's location, otherwise the system will block the click and return an error.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_press_key",
+            "description": "Presses a specific key on the keyboard instantly. Useful for navigating games (w, a, s, d), pressing 'Escape' to close popups, or 'Enter' to submit forms.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": { "type": "string", "description": "The key to press (e.g., 'w', 'a', 'Enter', 'Escape', 'ArrowUp', 'Tab')." }
+                },
+                "required": ["key"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_list_tabs",
+            "description": "Lists all currently open browser tabs with their Tab IDs.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_open_tab",
+            "description": "Opens a new browser tab. Optionally navigates to a URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "Optional URL to navigate to after opening the tab." }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_close_tab",
+            "description": "Closes a specific browser tab by its Tab ID. Use browser_list_tabs to find the ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tab_id": { "type": "integer", "description": "The ID of the tab to close." }
+                },
+                "required": ["tab_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_switch_tab",
+            "description": "Switches focus to a specific browser tab by its Tab ID. Use browser_list_tabs to find the ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tab_id": { "type": "integer", "description": "The ID of the tab to switch to." }
+                },
+                "required": ["tab_id"]
+            }
+        }
+    }
+]
