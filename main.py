@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSplitter, QLabel, QFileDialog, QDialog, 
                              QFormLayout, QDoubleSpinBox, QSpinBox,
                              QTabWidget, QListWidget, QListWidgetItem,
-                             QMenu, QInputDialog, QMessageBox)
+                             QMenu, QInputDialog, QMessageBox, QCheckBox)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QThread, pyqtSignal, Qt, QObject, pyqtSlot, QUrl
 from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor, QFileSystemModel
@@ -28,7 +28,7 @@ from tool_handler import execute_tool
 import os
 os.environ["OPENROUTER_API_KEY"] = "..."
 
-MODEL = "openai/moonshotai/kimi-k2.6:nitro" 
+MODEL = "openai/moonshotai/kimi-k2.6:nitro" #"openai/google/gemini-3-flash-preview"
 TOKEN_LIMIT = 50_000
 
 with open("tools.json", "r") as f:
@@ -360,36 +360,73 @@ class SettingsDialog(QDialog):
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
         self.setWindowTitle("LLM Settings")
-        self.resize(350, 200)
+        self.resize(380, 320)
         self.setStyleSheet("""
-            QDialog { background-color: #18181b; color: #e4e4e7; font-family: 'Segoe UI'; }
-            QLabel { color: #a1a1aa; font-weight: bold; }
-            QSpinBox, QDoubleSpinBox { background-color: #09090b; color: #e4e4e7; border: 1px solid #27272a; border-radius: 5px; padding: 5px; }
-            QPushButton { background-color: #3b82f6; color: #ffffff; border-radius: 5px; padding: 8px; font-weight: bold; border: none;}
-            QPushButton:hover { background-color: #60a5fa; }
+            QDialog { background-color: #09090b; }
+            QLabel { color: #e4e4e7; font-family: 'Segoe UI'; }
+            QLabel.title { font-size: 18px; font-weight: 800; margin-bottom: 5px; color: #ffffff; }
+            QLabel.desc { color: #a1a1aa; font-size: 11px; margin-left: 28px; margin-bottom: 10px; }
+            QSpinBox, QDoubleSpinBox { background-color: #18181b; color: #e4e4e7; border: 1px solid #27272a; border-radius: 6px; padding: 6px; font-size: 13px; }
+            QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button { width: 0px; }
+            QCheckBox { color: #e4e4e7; font-weight: bold; font-size: 13px; spacing: 12px; margin-top: 10px;}
+            QCheckBox::indicator { width: 40px; height: 22px; border-radius: 11px; border: 1px solid #27272a; background-color: #18181b; }
+            QCheckBox::indicator:checked { background-color: #3b82f6; border: 1px solid #3b82f6; image: url(); }
+            QPushButton { background-color: #ffffff; color: #000000; border-radius: 6px; padding: 12px; font-weight: 800; font-size: 13px; margin-top: 15px;}
+            QPushButton:hover { background-color: #d4d4d8; }
         """)
         self.settings = current_settings
-        layout = QFormLayout(self)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(25, 25, 25, 25)
+        
+        title = QLabel("⚙️ Preferences")
+        title.setProperty("class", "title")
+        layout.addWidget(title)
+        
+        form_layout = QFormLayout()
+        form_layout.setSpacing(15)
         
         self.temp_input = QDoubleSpinBox()
         self.temp_input.setRange(0.0, 2.0)
         self.temp_input.setSingleStep(0.1)
         self.temp_input.setValue(self.settings.get("temperature", 0.7))
-        layout.addRow("Temperature:", self.temp_input)
+        form_layout.addRow(QLabel("🌡️ Temperature:"), self.temp_input)
         
         self.tokens_input = QSpinBox()
         self.tokens_input.setRange(100, 128000)
         self.tokens_input.setSingleStep(500)
         self.tokens_input.setValue(self.settings.get("max_tokens", 4000))
-        layout.addRow("Max Tokens:", self.tokens_input)
+        form_layout.addRow(QLabel("🧠 Max Tokens:"), self.tokens_input)
+        
+        layout.addLayout(form_layout)
+        
+        self.search_cb = QCheckBox("Enable Fast Web Tools")
+        self.search_cb.setChecked(self.settings.get("enable_basic_search", True))
+        layout.addWidget(self.search_cb)
+        
+        desc = QLabel("If disabled, the AI is forced to open a real Playwright browser tab even for simple searches.")
+        desc.setProperty("class", "desc")
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
+        
+        self.thoughts_cb = QCheckBox("Show Agent Thoughts")
+        self.thoughts_cb.setChecked(self.settings.get("show_thoughts", True))
+        layout.addWidget(self.thoughts_cb)
+        
+        desc2 = QLabel("If disabled, hides the AI's pre-tool reasoning blocks from the chat view.")
+        desc2.setProperty("class", "desc")
+        desc2.setWordWrap(True)
+        layout.addWidget(desc2)
         
         self.save_btn = QPushButton("Save Settings")
         self.save_btn.clicked.connect(self.save_and_close)
-        layout.addRow(self.save_btn)
+        layout.addWidget(self.save_btn)
         
     def save_and_close(self):
         self.settings["temperature"] = self.temp_input.value()
         self.settings["max_tokens"] = self.tokens_input.value()
+        self.settings["enable_basic_search"] = self.search_cb.isChecked()
+        self.settings["show_thoughts"] = self.thoughts_cb.isChecked()
         with open("settings.json", "w") as f:
             json.dump(self.settings, f)
         self.accept()
@@ -454,8 +491,8 @@ class AgentWorker(QThread):
                             tool_image_indices.append(i)
                 
                 # Strip all images EXCEPT the last 2 tool calls
-                if len(tool_image_indices) > 2:
-                    for i in tool_image_indices[:-2]:
+                if len(tool_image_indices) > 1:
+                    for i in tool_image_indices[:-1]:
                         clean_content =[]
                         for part in api_messages[i]["content"]:
                             if isinstance(part, dict) and part.get("type") == "image_url":
@@ -474,14 +511,19 @@ class AgentWorker(QThread):
                                     break
                 # -------------------------------------------------
 
+                active_tools = tools
+                if not self.settings.get("enable_basic_search", True):
+                    active_tools = [t for t in tools if t["function"]["name"] not in ["web_search", "scrape_url"]]
+
                 response = completion(
                     model=MODEL,
                     api_base="https://openrouter.ai/api/v1",
                     api_key=os.environ["OPENROUTER_API_KEY"],
                     messages=api_messages,
-                    tools=tools,
+                    tools=active_tools,
                     temperature=self.settings["temperature"],
-                    max_tokens=self.settings["max_tokens"]
+                    max_tokens=self.settings["max_tokens"],
+                    timeout=300.0
                 )
 
                 if not self._is_running: 
@@ -500,7 +542,25 @@ class AgentWorker(QThread):
                 
                 if msg.content:
                     assistant_msg["content"] = msg.content
-                    self.new_message.emit("assistant", msg.content, assistant_id)
+                    display_content = msg.content
+                    
+                    import re
+                    has_think_tag = "<think>" in display_content
+                    
+                    # If it's calling a tool OR explicitly thinking, format it
+                    if msg.tool_calls or has_think_tag:
+                        if not self.settings.get("show_thoughts", True):
+                            display_content = re.sub(r'<think>.*?</think>', '', display_content, flags=re.DOTALL).strip()
+                            if msg.tool_calls and not has_think_tag:
+                                display_content = None # Hide raw text before a tool call
+                        else:
+                            if has_think_tag:
+                                display_content = display_content.replace("<think>", "<details><summary>Thoughts</summary>\n\n").replace("</think>", "\n</details>")
+                            elif msg.tool_calls:
+                                display_content = f"<details><summary>Thoughts</summary>\n\n{display_content}\n</details>"
+                    
+                    if display_content and display_content.strip():
+                        self.new_message.emit("assistant", display_content, assistant_id)
                 
                 if msg.tool_calls:
                     assistant_msg["tool_calls"] =[{"id": t.id, "type": t.type, "function": {"name": t.function.name, "arguments": t.function.arguments}} for t in msg.tool_calls]
@@ -566,43 +626,58 @@ class AgentWorker(QThread):
                         self.new_message.emit("tool", raw_tool_out, t_id)
                     
                     # --- NEW: MEMORY CONDENSATION TRIGGER ---
-                    # We trigger at 110k to leave 18k tokens of breathing room to generate the summary
+                    # We trigger at TOKEN_LIMIT
                     if total_tokens > TOKEN_LIMIT:
                         self.status_update.emit("Context Limit Reached: Summarizing Memory...")
                         notify_id = str(uuid.uuid4())
-                        self.new_message.emit("assistant", "🔄 **Context limit approaching (>110k tokens).** Extracting memory into a detailed summary and swapping to a fresh instance...", notify_id)
+                        self.new_message.emit("assistant", f"🔄 **Context limit approaching (>{TOKEN_LIMIT} tokens).** Extracting memory into a detailed summary and swapping to a fresh instance...", notify_id)
                         
-                        # Strip images from history before asking it to summarize to save prompt space
-                        clean_history =[]
+                        # Build a clean native message history without images
+                        summary_messages =[]
                         for m in api_messages:
                             if m.get("role") == "system": continue
                             clean_m = {"role": m["role"]}
+                            
+                            # Safely extract text from multimodal content
                             if "content" in m and isinstance(m["content"], list):
                                 clean_m["content"] = " ".join([p["text"] for p in m["content"] if p.get("type") == "text"])
                             elif "content" in m:
                                 clean_m["content"] = m["content"]
-                            if "tool_calls" in m: clean_m["tool_calls"] = m["tool_calls"]
-                            if "name" in m: clean_m["name"] = m["name"]
-                            clean_history.append(clean_m)
                             
+                            # CRITICAL: Keep essential tool attributes to prevent API errors
+                            if "tool_calls" in m: clean_m["tool_calls"] = m["tool_calls"]
+                            if "tool_call_id" in m: clean_m["tool_call_id"] = m["tool_call_id"]
+                            if "name" in m: clean_m["name"] = m["name"]
+                            
+                            summary_messages.append(clean_m)
+                            
+                        # Append the summarization instruction as the final user message
                         summary_prompt = (
-                            "You are an AI tasked with summarizing a highly complex agent conversation that is hitting its memory token limit.\n"
-                            "Provide a detailed summary (under 3000 words) of the entire conversation. Include:\n"
+                            "SYSTEM ALERT: You are approaching your maximum memory context limit.\n"
+                            "Provide a detailed summary (under 3000 words) of the entire conversation above. Include:\n"
                             "1. The original user request and primary goal.\n"
                             "2. All key facts, data, variables, and context discovered so far.\n"
-                            "3. The exact reasoning, logic, and 'thinking' of the agent.\n"
-                            "4. A clear explanation of what the agent was *just doing* (the latest tool calls and current screen state) so a new fresh instance can seamlessly take over.\n\n"
-                            f"CONVERSATION HISTORY:\n{json.dumps(clean_history, indent=2)}"
+                            "3. Your exact reasoning, logic, and 'thinking' process.\n"
+                            "4. A clear explanation of what you were *just doing* (the latest tool calls and current screen state) so a new fresh instance can seamlessly take over.\n\n"
+                            "Respond ONLY with the summary text."
                         )
+                        summary_messages.append({"role": "user", "content": summary_prompt})
                         
+                        # Request the summary using native arrays
                         summary_res = completion(
                             model=MODEL,
                             api_base="https://openrouter.ai/api/v1",
                             api_key=os.environ["OPENROUTER_API_KEY"],
-                            messages=[{"role": "user", "content": summary_prompt}],
-                            max_tokens=4000
+                            messages=summary_messages,
+                            max_tokens=8000,
+                            timeout=300.0
                         )
+                        
                         summary_text = summary_res.choices[0].message.content
+                        
+                        # Fallback check just in case the API times out
+                        if not summary_text:
+                            summary_text = "[System Error: Summary API failed to return text. Context wiped to prevent crash.]"
                         
                         # Save to status.md (Root Directory, outside vault)
                         with open("status.md", "w", encoding="utf-8") as f:
@@ -614,7 +689,7 @@ class AgentWorker(QThread):
                         sys_prompt = self.messages[0]
                         
                         # Isolate the latest assistant tool call block + its tool results
-                        last_interaction =[]
+                        last_interaction = []
                         for m in reversed(self.messages):
                             last_interaction.insert(0, m)
                             if m.get("role") == "assistant" and "tool_calls" in m:
@@ -678,14 +753,52 @@ class DropTextEdit(QTextEdit):
         else:
             super().keyPressEvent(event)
 
+    # --- ADD THIS METHOD ---
+    def insertFromMimeData(self, source):
+        # 1. Handle pasted raw images (e.g., Snipping Tool / print screen)
+        if source.hasImage():
+            img = source.imageData()
+            if img and not img.isNull():
+                import tempfile
+                tmp_path = os.path.join(tempfile.gettempdir(), f"pasted_{uuid.uuid4().hex}.png")
+                img.save(tmp_path, "PNG")
+                self.files_dropped.emit([tmp_path])
+            return
+            
+        # 2. Handle pasted files (e.g., copied directly from File Explorer/Finder)
+        elif source.hasUrls():
+            paths =[url.toLocalFile() for url in source.urls() if url.toLocalFile().lower().endswith(
+                ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.mov', '.avi', '.pdf', '.txt', '.csv', '.md'))]
+            if paths:
+                self.files_dropped.emit(paths)
+            return
+            
+        # 3. Default behavior for standard text pasting
+        super().insertFromMimeData(source)
+    # -----------------------
+
     def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls(): event.acceptProposedAction()
-        else: super().dragEnterEvent(event)
+        if event.mimeData().hasUrls(): 
+            event.acceptProposedAction()
+        else: 
+            super().dragEnterEvent(event)
+
+    # --- MISSING METHOD REQUIRED FOR FILE DROPS ---
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+    # ----------------------------------------------
 
     def dropEvent(self, event):
-        paths =[url.toLocalFile() for url in event.mimeData().urls() if url.toLocalFile().lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.mov', '.avi'))]
-        if paths: self.files_dropped.emit(paths)
-        event.acceptProposedAction()
+        if event.mimeData().hasUrls():
+            paths =[url.toLocalFile() for url in event.mimeData().urls() if url.toLocalFile().lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp4', '.mov', '.avi', '.pdf', '.txt', '.csv', '.md'))]
+            if paths: 
+                self.files_dropped.emit(paths)
+            event.acceptProposedAction()
+        else:
+            super().dropEvent(event)
 
 class AttachmentThumbnail(QWidget):
     remove_clicked = pyqtSignal(str)
@@ -699,6 +812,9 @@ class AttachmentThumbnail(QWidget):
         self.img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         if file_path.lower().endswith(('.mp4', '.mov', '.avi', '.mkv')):
             self.img_label.setText("Video")
+            self.img_label.setStyleSheet("background-color: #27272a; border-radius: 8px; color: #a1a1aa; font-weight: bold; font-size: 11px;")
+        elif file_path.lower().endswith(('.pdf', '.txt', '.csv', '.md')):
+            self.img_label.setText(Path(file_path).suffix[1:].upper())
             self.img_label.setStyleSheet("background-color: #27272a; border-radius: 8px; color: #a1a1aa; font-weight: bold; font-size: 11px;")
         else:
             self.img_label.setStyleSheet("background-color: #27272a; border-radius: 8px; border: 1px solid #3f3f46;")
@@ -721,7 +837,7 @@ class KaptchaApp(QMainWindow):
         set_dark_titlebar(self)
         
         self.attached_files =[]
-        self.app_settings = {"temperature": 0.7, "max_tokens": 4000}
+        self.app_settings = {"temperature": 0.5, "max_tokens": 64000, "enable_basic_search": False, "show_thoughts": True}
         self.load_settings()
 
         self.worker = None
@@ -743,20 +859,27 @@ class KaptchaApp(QMainWindow):
             ### TOOL USAGE
             You are STRONGLY encouraged to use your tools. Do not rely entirely on your training data; actively read and write to verify and store facts. 
             You MUST check the current date using `current_datetime` tool BEFORE USING ANY OTHER TOOL.
+
+            ### MANDATORY TOOLS
+            You MUST always use `current_datetime` tool to get the current time BEFORE USING ANY OTHER TOOL!
+            You MUST THEN FOLLOW UP BY checking the vault and vault.md (using `vault_get_working_directory`, then `vault_list_files`, then `vault_read_file`), unless you are very certain there is no need to use the vault. Since the vault already stores a lot of information, it lets you be factually accurate and also recall important information faster.
             
             ### WEB AND BROWSER STRATEGY
             You have two different ways to interact with the web:
-            1. **Fast Information Gathering (`scrape_url`)**: Use this for reading articles, documentation, or extracting text.
+            1. **Fast Information Gathering (`scrape_url`)**: Use this for reading articles, documentation, or extracting text. This uses DuckDuckGo Search, which is not as accurate but gets the job done for simple tasks.
             2. **Interactive Browsing (`browser_*` tools)**: Use this for complex tasks, logins, or dynamic UIs.
+            
+            Note: IF you have tried `scrape_url` and `web_search` tool several times and yield no success, you SHOULD start using browser tools and STOP using `scrape_url` or `web_search`. From then on, you SHOULD use Google search on the browser too INSTEAD of DuckDuckGo Search from the `web_search` tool.
             
             ### BROWSER AUTOMATION LOOP & STRICT RULES
             1. **ALWAYS GET VIEW FIRST**: Before you run ANY browser tools INCLUDING `browser_navigate`, you MUST run `browser_get_view` to see the current page state, interactive elements, and their IDs. Do not attempt to interact blindly. THIS IS A MANDATORY STEP.
             2. **MANDATORY PRIMARY INTERACTION (ID CLICKING)**: You MUST use `browser_click` on the yellow [ID] tags for all web interactions (links, buttons, inputs, drop-downs, if they point to an element you would like to click on). NEVER use the cyan grid for standard web elements. If it has an ID, use `browser_click`.
             3. **TYPING IN INPUTS**: To type, use `browser_click` on the input field's [ID] to focus it, THEN use `browser_type`.
+                - NOTE: When handling sensitive inputs where typing wrongly will mess up things, PLEASE click TWICE (2 separate times) to ensure you are selected to the correct part. You may click by hovering or click using ID.
             4. **GRID HOVERING (ABSOLUTE LAST RESORT)**: ONLY use `browser_hover_grid` if the target completely lacks an ID badge (e.g., video game canvases, interactive maps, or broken UI elements). If you are forced to use the grid:
                 - STEP 1: Call `browser_hover_grid` to place your virtual cursor (e.g., 'C14').
                 - STEP 2: You MUST call `browser_get_view` immediately after hovering. The system will physically block you from clicking if you try to skip this step.
-                - STEP 3: Visually verify the bright red/white bullseye cursor in the returned image. If it is exactly on your target, call `browser_click_hovered`. If it is off-center, restart at Step 1 with an adjacent cell.
+                - STEP 3: You MUST visually verify the bright red cursor in the returned image is on your target. NOTE! You click on the CENTER of the cursor, so even if its overlapping it might be in the wrong location! If it is exactly on your target, call `browser_click_hovered`. If it is off-center, restart at Step 1 with a new cell (use your cursor position as reference to find out where is the optimal spot to hover).
             5. **REFRESH VIEW**: Always call `browser_get_view` after taking an action that changes the page (e.g., navigating, clicking a link, pressing Enter) so you can see the updated screen.
                 - You will get 3 pictures:
                     - a clean image of the browser (with a RED DOT to mark your cursor location)
@@ -764,11 +887,18 @@ class KaptchaApp(QMainWindow):
                     - a grid with markings (ON EACH SQUARE) that you can use your hover tool on
                 - you MUST check if your cursor is on the right position by comparing the red dot's location against where you would like to click
             6. **GAMES/POPUPS**: If you need to navigate a game or close a popup overlay, use `browser_press_key` (e.g., 'Escape').
-            7. **SCROLLING**: If you need to scroll down (e.g. on an email or on a website with a long list unable to fit on the screen), you need to FIRST select (using either `browser_click` or hovering then clicking) the part you want to scroll, THEN scroll.
-            8. **WAITING FOR LOADS**: If a page is actively loading, displaying a progress bar, or you are waiting for an opponent/game to start, use the \browser_wait` tool to pause for a few seconds. Do NOT repeatedly call `browser_get_view` while something is loading, as it wastes memory.`
+            7. **SCROLLING (MANDATORY CLICK-FIRST SEQUENCE)**: You MUST NEVER call a scroll tool on a fresh page or a specific container without first establishing focus. 
+                - STEP 1: You MUST `browser_click` an [ID] or a neutral area within the specific element you want to scroll (e.g., the main page body, a sidebar, or an email list) to gain focus.
+                    - Sidenote: You SHOULD `browser_get_view` before scrolling. For example, when you click on an email, you will still need to click somewhere in the contents of the email before being able to scroll. This applies to many other things too.
+                    - When scrolling up/down, IF you find that the next view of the browser you get is not what you intended, there is a HIGH PROBABILITY that you aren't clicking the correct element / part of screen to scroll down on. Please reverse what you did (scroll up if you scrolled down), then CLICK first then try scrolling again.
+                - STEP 2: Only AFTER the click is successful, you may use the scroll tool.
+                - REASON: Scrolling will FAIL if the browser focus is not explicitly set on the target container. Do not skip the click.
+            8. **WAITING FOR LOADS**: If a page is actively loading, displaying a progress bar, or you are waiting for an opponent/game to start, use the `browser_wait` tool to pause for a few seconds. Do NOT repeatedly call `browser_get_view` while something is loading, as it wastes memory.`
+            9. **TABS & MULTI-TASKING**: If you need to keep your current page open (e.g., an email draft or game) while looking something else up, use `browser_open_tab` to open a new tab, then switch between them using `browser_switch_tab`.
+                - Note: If your `browser_get_view` suddenly changes, there is a high probability that whatever you have done has caused a new tab to open and forcing you to tab to it. You should check your tabs if this happens.
                   
             ### THE /VAULT/ DIRECTORY (Selective Memory)
-            You maintain a permanent memory in `./vault/`. 
+            You maintain a permanent memory in `./vault/`. Please note you are FORBIDDEN from accessing `vault/browser_data`.
             - **Selective Saving**: DO NOT save everything you see. If you are just "checking" a site or looking up a quick fact, do not record it.
             - **What to Save**: Only save information that is:
                 1. Explicitly requested by the user to be remembered.
@@ -776,8 +906,9 @@ class KaptchaApp(QMainWindow):
                 3. High-value data that would be difficult to find again.
             - **Storage Strategy**: 
                 1. **FILE FIRST**: Create/update the specific content file in a subdirectory (e.g., `./vault/projects/`). 
-                2. **INDEX SECOND**: Update `./vault/vault.md` with a link and a brief 1-sentence summary.
+                2. **INDEX SECOND**: Update `./vault/vault.md` so it is updated for everything thats happening in the vault.
             - **Keep it Clean**: The Vault is for high-signal data only. Keep it organized and avoid "junk" entries.
+            - **Keep it Organised**: The Vault should be neatly organised, meaning everything should be sorted into folders, so its easy to access.
                 
             ### FORMATTING RULES
             - **Mathematics**: Use LaTeX. Use `\\[` and `\\]` for blocks, and `\\(` and `\\)` for inline.
@@ -957,6 +1088,18 @@ class KaptchaApp(QMainWindow):
 
     # --- CHAT LOGIC ---
     def new_chat(self):
+        # Forcefully detach the old worker and reset UI buttons
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+            try: self.worker.disconnect() 
+            except Exception: pass
+            self.worker = None
+            
+        self.send_btn.setText("Send ✈️")
+        self.send_btn.setEnabled(True)
+        self.send_btn.setStyleSheet("")
+        self.status_label.setText("READY")
+
         self.current_chat_id = "chat_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.current_chat_title = "New Chat"
         self.messages = [self.get_system_prompt()]
@@ -1088,7 +1231,7 @@ class KaptchaApp(QMainWindow):
             viewer.show()
 
     def open_file_dialog(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, "Select Attachments", "", "Media Files (*.png *.jpg *.jpeg *.gif *.webp *.mp4 *.mov *.avi)")
+        paths, _ = QFileDialog.getOpenFileNames(self, "Select Attachments", "", "Supported Files (*.png *.jpg *.jpeg *.gif *.webp *.mp4 *.mov *.avi *.pdf *.txt *.csv *.md)")
         if paths: self.add_attachments(paths)
 
     def add_attachments(self, paths):
@@ -1126,6 +1269,8 @@ class KaptchaApp(QMainWindow):
         for img in images:
             if img.lower().endswith(('.mp4', '.mov', '.avi', '.mkv')):
                 display_raw += f"\n\n_[Attached Video: {Path(img).name}]_"
+            elif img.lower().endswith(('.pdf', '.txt', '.csv', '.md')):
+                display_raw += f"\n\n_[Attached Document: {Path(img).name}]_"
             else:
                 with open(img, "rb") as f: b64 = base64.b64encode(f.read()).decode('utf-8')
                 ext = 'jpeg' if img.lower().endswith('jpg') else Path(img).suffix[1:].lower()
@@ -1142,12 +1287,21 @@ class KaptchaApp(QMainWindow):
         if images:
             content =[{"type": "text", "text": raw_text if raw_text else "Attached files below:"}]
             for path in images:
-                if path.lower().endswith(('.mp4', '.mov', '.avi', '.mkv')):
+                ext = Path(path).suffix[1:].lower()
+                if ext in['mp4', 'mov', 'avi', 'mkv']:
                     content.append({"type": "text", "text": f"[User attached a video file: {path}. Note: direct video processing may be limited.]"})
+                elif ext in['pdf', 'txt', 'csv', 'md']:
+                    with open(path, "rb") as f: 
+                        b64_file = base64.b64encode(f.read()).decode('utf-8')
+                    
+                    # Force textual files (csv, md) to be passed as plain text (.txt) so Kimi accepts them
+                    mime_type = "application/pdf" if ext == "pdf" else "text/plain"
+                    
+                    content.append({"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_file}"}})
                 else:
                     with open(path, "rb") as f: b64_img = base64.b64encode(f.read()).decode('utf-8')
-                    ext = 'jpeg' if path.lower().endswith('jpg') else Path(path).suffix[1:].lower()
-                    content.append({"type": "image_url", "image_url": {"url": f"data:image/{ext};base64,{b64_img}"}})
+                    ext_img = 'jpeg' if ext == 'jpg' else ext
+                    content.append({"type": "image_url", "image_url": {"url": f"data:image/{ext_img};base64,{b64_img}"}})
             self.messages.append({"role": "user", "content": content, "__id__": msg_id})
         else:
             self.messages.append({"role": "user", "content": raw_text, "__id__": msg_id})
