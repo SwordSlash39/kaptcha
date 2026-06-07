@@ -5,6 +5,8 @@ import uuid
 import ctypes
 import datetime
 import concurrent.futures
+import threading
+import requests
 from pathlib import Path
 from litellm import completion
 
@@ -16,9 +18,10 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSplitter, QLabel, QFileDialog, QDialog, 
                              QFormLayout, QDoubleSpinBox, QSpinBox,
                              QTabWidget, QListWidget, QListWidgetItem,
-                             QMenu, QInputDialog, QMessageBox, QCheckBox)
+                             QMenu, QInputDialog, QMessageBox, QCheckBox, 
+                             QComboBox, QLineEdit, QCompleter)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtCore import QThread, pyqtSignal, Qt, QObject, pyqtSlot, QUrl
+from PyQt6.QtCore import QThread, pyqtSignal, Qt, QObject, pyqtSlot, QUrl, QSortFilterProxyModel, QRegularExpression, QStringListModel
 from PyQt6.QtGui import QPixmap, QIcon, QPainter, QColor, QFileSystemModel
 from PyQt6.QtWebChannel import QWebChannel
 
@@ -26,10 +29,6 @@ from PyQt6.QtWebChannel import QWebChannel
 from tool_handler import execute_tool
 
 import os
-os.environ["OPENROUTER_API_KEY"] = "..."
-
-MODEL = "openai/moonshotai/kimi-k2.6:nitro" #"openai/google/gemini-3-flash-preview"
-TOKEN_LIMIT = 50_000
 
 with open("tools.json", "r") as f:
     tools = json.load(f)
@@ -356,79 +355,272 @@ class MarkdownViewerWindow(QDialog):
         if self.page_loaded and self.content is not None:
             self.webview.page().runJavaScript(f"setContent({json.dumps(self.content)});")
 
+class ModelFetcherThread(QThread):
+    models_fetched = pyqtSignal(list)
+
+    def run(self):
+        try:
+            resp = requests.get("https://openrouter.ai/api/v1/models", timeout=10)
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+            
+            multimodal_models = []
+            for m in data:
+                modality = m.get("architecture", {}).get("modality", "") if m.get("architecture") else ""
+                # Auto reject non-multimodal: must support images/vision
+                if "image" in modality.lower() or "vision" in m["id"].lower() or "multimodal" in modality.lower():
+                    multimodal_models.append(m)
+            
+            self.models_fetched.emit(multimodal_models)
+        except Exception: 
+            pass
+
+class MultiWordCompleter(QCompleter):
+    def splitPath(self, path):
+        # Prevent QCompleter's default exact-match filtering
+        return [""]
+
 class SettingsDialog(QDialog):
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("LLM Settings")
-        self.resize(380, 320)
+        self.setWindowTitle("Preferences")
+        self.resize(520, 480)
         self.setStyleSheet("""
             QDialog { background-color: #09090b; }
-            QLabel { color: #e4e4e7; font-family: 'Segoe UI'; }
-            QLabel.title { font-size: 18px; font-weight: 800; margin-bottom: 5px; color: #ffffff; }
-            QLabel.desc { color: #a1a1aa; font-size: 11px; margin-left: 28px; margin-bottom: 10px; }
-            QSpinBox, QDoubleSpinBox { background-color: #18181b; color: #e4e4e7; border: 1px solid #27272a; border-radius: 6px; padding: 6px; font-size: 13px; }
-            QSpinBox::up-button, QDoubleSpinBox::up-button, QSpinBox::down-button, QDoubleSpinBox::down-button { width: 0px; }
-            QCheckBox { color: #e4e4e7; font-weight: bold; font-size: 13px; spacing: 12px; margin-top: 10px;}
-            QCheckBox::indicator { width: 40px; height: 22px; border-radius: 11px; border: 1px solid #27272a; background-color: #18181b; }
-            QCheckBox::indicator:checked { background-color: #3b82f6; border: 1px solid #3b82f6; image: url(); }
-            QPushButton { background-color: #ffffff; color: #000000; border-radius: 6px; padding: 12px; font-weight: 800; font-size: 13px; margin-top: 15px;}
+            QLabel { color: #e4e4e7; font-family: 'Segoe UI', sans-serif; font-size: 13px; }
+            QLabel.desc { color: #a1a1aa; font-size: 12px; margin-bottom: 8px; }
+            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { 
+                background-color: #18181b; color: #e4e4e7; border: 1px solid #27272a; 
+                border-radius: 6px; padding: 8px; font-size: 13px; 
+            }
+            QComboBox::drop-down { border: none; }
+            
+            QComboBox QAbstractItemView {
+                background-color: #18181b;
+                color: #e4e4e7;
+                font-size: 13px;
+                border: 1px solid #27272a;
+                selection-background-color: #3b82f6;
+                outline: none;
+            }
+            
+            QTabWidget::pane { border: 1px solid #27272a; border-radius: 6px; background-color: #18181b; margin-top: 5px; }
+            QTabBar::tab { background: #09090b; color: #a1a1aa; padding: 8px 16px; border: 1px solid transparent; font-weight: bold; }
+            QTabBar::tab:selected { background: #18181b; color: #e4e4e7; border: 1px solid #27272a; border-bottom: none; border-top-left-radius: 6px; border-top-right-radius: 6px; }
+            QCheckBox { color: #e4e4e7; font-weight: 500; font-size: 13px; spacing: 10px; margin-top: 5px; }
+            QCheckBox::indicator { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #27272a; background-color: #18181b; }
+            QCheckBox::indicator:checked { background-color: #3b82f6; border: 1px solid #3b82f6; }
+            QPushButton { background-color: #ffffff; color: #000000; border-radius: 6px; padding: 10px; font-weight: 600; font-size: 13px; margin-top: 10px; }
             QPushButton:hover { background-color: #d4d4d8; }
         """)
         self.settings = current_settings
+        self.all_models = []
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setContentsMargins(20, 20, 20, 20)
         
-        title = QLabel("⚙️ Preferences")
-        title.setProperty("class", "title")
-        layout.addWidget(title)
+        self.tabs = QTabWidget()
         
-        form_layout = QFormLayout()
-        form_layout.setSpacing(15)
+        # --- TAB 1: General ---
+        self.tab_general = QWidget()
+        gen_layout = QVBoxLayout(self.tab_general)
+        
+        form_gen = QFormLayout()
+        form_gen.setSpacing(15)
+        
+        self.api_key_input = QLineEdit()
+        self.api_key_input.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
+        self.api_key_input.setText(self.settings.get("api_key", ""))
+        self.api_key_input.setPlaceholderText("sk-or-v1-...")
+        form_gen.addRow(QLabel("API Key:"), self.api_key_input)
+        
+        # Model Selection
+        model_layout = QVBoxLayout()
+        model_layout.setSpacing(5)
+        
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(["Sort by: Price (Low to High)", "Sort by: Throughput (Nitro)"])
+        self.sort_combo.currentIndexChanged.connect(self.populate_models)
+        model_layout.addWidget(self.sort_combo)
+        
+        self.model_combo = QComboBox()
+        self.model_combo.setEditable(True)
+        self.model_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        
+        # Use a standalone model to prevent the "inconsistent changes" UI crash
+        self.all_models_list_model = QStringListModel()
+        
+        self.completer_proxy = QSortFilterProxyModel()
+        self.completer_proxy.setSourceModel(self.all_models_list_model)
+        
+        completer = MultiWordCompleter(self.completer_proxy, self)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.popup().setStyleSheet("""
+            QListView { 
+                background-color: #18181b; color: #e4e4e7; border: 1px solid #27272a; border-radius: 6px; padding: 4px; outline: none;
+            }
+            QListView::item { padding: 8px; border-radius: 4px; }
+            QListView::item:selected, QListView::item:hover { background-color: #3b82f6; color: white; }
+        """)
+        self.model_combo.setCompleter(completer)
+        
+        # Dynamic regex filter updates as you type
+        def update_filter(text):
+            pattern = ".*".join(QRegularExpression.escape(w) for w in text.split())
+            self.completer_proxy.setFilterRegularExpression(QRegularExpression(pattern, QRegularExpression.PatternOption.CaseInsensitiveOption))
+            
+            if text in self.all_models_list_model.stringList():
+                self.model_combo.completer().popup().hide()
+            elif self.model_combo.hasFocus():
+                self.model_combo.completer().complete()
+            
+        self.model_combo.editTextChanged.connect(update_filter)
+        
+        current_saved_model = self.settings.get("model", "openai/moonshotai/kimi-k2.6:nitro")
+        self.model_combo.addItem(current_saved_model)
+        self.model_combo.setCurrentText(current_saved_model)
+        
+        # Initialize the standalone list with the default model so the completer doesn't start empty
+        self.all_models_list_model.setStringList([current_saved_model])
+        
+        model_layout.addWidget(self.model_combo)
+        form_gen.addRow(QLabel("Model:"), model_layout)
         
         self.temp_input = QDoubleSpinBox()
         self.temp_input.setRange(0.0, 2.0)
         self.temp_input.setSingleStep(0.1)
         self.temp_input.setValue(self.settings.get("temperature", 0.7))
-        form_layout.addRow(QLabel("🌡️ Temperature:"), self.temp_input)
+        form_gen.addRow(QLabel("Temperature:"), self.temp_input)
         
-        self.tokens_input = QSpinBox()
-        self.tokens_input.setRange(100, 128000)
-        self.tokens_input.setSingleStep(500)
-        self.tokens_input.setValue(self.settings.get("max_tokens", 4000))
-        form_layout.addRow(QLabel("🧠 Max Tokens:"), self.tokens_input)
+        self.token_limit_input = QSpinBox()
+        self.token_limit_input.setRange(1000, 2000000)
+        self.token_limit_input.setSingleStep(5000)
+        self.token_limit_input.setValue(self.settings.get("token_limit", 50000))
+        form_gen.addRow(QLabel("Token Limit:"), self.token_limit_input)
         
-        layout.addLayout(form_layout)
+        gen_layout.addLayout(form_gen)
         
+        desc_limit = QLabel("Token Limit dictates when memory condensation is triggered. Max Completion Tokens sent to the API will automatically be double this limit.")
+        desc_limit.setProperty("class", "desc")
+        desc_limit.setWordWrap(True)
+        gen_layout.addWidget(desc_limit)
+        gen_layout.addStretch()
+        self.tabs.addTab(self.tab_general, "General")
+        
+        # --- TAB 2: Advanced ---
+        self.tab_adv = QWidget()
+        adv_layout = QVBoxLayout(self.tab_adv)
+        adv_layout.setSpacing(10)
+        
+        self.browser_cb = QCheckBox("Enable Browser Access")
+        self.browser_cb.setChecked(self.settings.get("enable_browser", True))
+        adv_layout.addWidget(self.browser_cb)
+        
+        desc_browser = QLabel("If enabled, a browser will immediately open. If disabled, any open browser will close instantly.")
+        desc_browser.setProperty("class", "desc")
+        desc_browser.setWordWrap(True)
+        adv_layout.addWidget(desc_browser)
+
         self.search_cb = QCheckBox("Enable Fast Web Tools")
         self.search_cb.setChecked(self.settings.get("enable_basic_search", True))
-        layout.addWidget(self.search_cb)
+        adv_layout.addWidget(self.search_cb)
         
-        desc = QLabel("If disabled, the AI is forced to open a real Playwright browser tab even for simple searches.")
-        desc.setProperty("class", "desc")
-        desc.setWordWrap(True)
-        layout.addWidget(desc)
+        desc_search = QLabel("If disabled, forces the AI to open a real browser tab even for simple searches.")
+        desc_search.setProperty("class", "desc")
+        desc_search.setWordWrap(True)
+        adv_layout.addWidget(desc_search)
         
         self.thoughts_cb = QCheckBox("Show Agent Thoughts")
         self.thoughts_cb.setChecked(self.settings.get("show_thoughts", True))
-        layout.addWidget(self.thoughts_cb)
+        adv_layout.addWidget(self.thoughts_cb)
         
-        desc2 = QLabel("If disabled, hides the AI's pre-tool reasoning blocks from the chat view.")
-        desc2.setProperty("class", "desc")
-        desc2.setWordWrap(True)
-        layout.addWidget(desc2)
+        desc_thoughts = QLabel("Hides or shows the AI's internal reasoning blocks in the chat view.")
+        desc_thoughts.setProperty("class", "desc")
+        desc_thoughts.setWordWrap(True)
+        adv_layout.addWidget(desc_thoughts)
+        
+        adv_layout.addStretch()
+        self.tabs.addTab(self.tab_adv, "Advanced")
+        
+        layout.addWidget(self.tabs)
         
         self.save_btn = QPushButton("Save Settings")
         self.save_btn.clicked.connect(self.save_and_close)
         layout.addWidget(self.save_btn)
         
+        # Start fetching models
+        self.fetcher = ModelFetcherThread()
+        self.fetcher.models_fetched.connect(self.on_models_fetched)
+        self.fetcher.start()
+        
+    def on_models_fetched(self, models):
+        self.all_models = models
+        self.populate_models()
+        
+    def populate_models(self):
+        if not self.all_models: return
+        sort_by = self.sort_combo.currentIndex()
+        
+        def get_price(m):
+            try: return float(m.get("pricing", {}).get("prompt", 0)) + float(m.get("pricing", {}).get("completion", 0))
+            except: return float('inf')
+                
+        def get_throughput(m):
+            is_nitro = ":nitro" in m["id"].lower()
+            return (0 if is_nitro else 1, get_price(m))
+            
+        sorted_models = sorted(self.all_models, key=get_price if sort_by == 0 else get_throughput)
+            
+        current_model = self.model_combo.currentText()
+        
+        # 1. Block signals to cleanly update the dropdown arrow list
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+        
+        model_ids = []
+        set_idx = -1
+        for i, m in enumerate(sorted_models):
+            m_id = m["id"]
+            model_ids.append(m_id)
+            self.model_combo.addItem(m_id, userData=m_id)
+            if m_id == current_model:
+                set_idx = i
+                
+        if set_idx >= 0:
+            self.model_combo.setCurrentIndex(set_idx)
+        else:
+            self.model_combo.setCurrentText(current_model)
+            
+        self.model_combo.blockSignals(False)
+        
+        # 2. CRITICAL: Hand the newly downloaded models over to the search completer!
+        self.all_models_list_model.setStringList(model_ids)
+        
+        # 3. If the user was already typing while it was downloading, pop it open instantly!
+        if self.model_combo.hasFocus() and self.model_combo.currentText() not in model_ids:
+            self.model_combo.completer().complete()
+
     def save_and_close(self):
+        old_browser = self.settings.get("enable_browser", True)
+        new_browser = self.browser_cb.isChecked()
+        
+        self.settings["api_key"] = self.api_key_input.text().strip()
+        if self.model_combo.currentData():
+            self.settings["model"] = self.model_combo.currentData()
         self.settings["temperature"] = self.temp_input.value()
-        self.settings["max_tokens"] = self.tokens_input.value()
+        self.settings["token_limit"] = self.token_limit_input.value()
         self.settings["enable_basic_search"] = self.search_cb.isChecked()
         self.settings["show_thoughts"] = self.thoughts_cb.isChecked()
+        self.settings["enable_browser"] = new_browser
+        
         with open("settings.json", "w") as f:
             json.dump(self.settings, f)
+            
+        # Trigger browser toggles smoothly in the background
+        if old_browser != new_browser:
+            if new_browser: threading.Thread(target=execute_tool, args=("browser_get_view", "{}"), daemon=True).start()
+            else: threading.Thread(target=execute_tool, args=("browser_close", "{}"), daemon=True).start()
+                
         self.accept()
 
 # --- AGENT WORKER THREAD ---
@@ -513,16 +705,27 @@ class AgentWorker(QThread):
 
                 active_tools = tools
                 if not self.settings.get("enable_basic_search", True):
-                    active_tools = [t for t in tools if t["function"]["name"] not in ["web_search", "scrape_url"]]
+                    active_tools = [t for t in active_tools if t["function"]["name"] not in ["web_search", "scrape_url"]]
+                if not self.settings.get("enable_browser", True):
+                    active_tools = [t for t in active_tools if not t["function"]["name"].startswith("browser_")]
+
+                model_name = self.settings.get("model", "openai/moonshotai/kimi-k2.6:nitro")
+                api_key = self.settings.get("api_key", "")
+                token_limit = self.settings.get("token_limit", 50000)
+                
+                if not model_name.startswith("openrouter/"):
+                    litellm_model = f"openrouter/{model_name}"
+                else:
+                    litellm_model = model_name
 
                 response = completion(
-                    model=MODEL,
+                    model=litellm_model,
                     api_base="https://openrouter.ai/api/v1",
-                    api_key=os.environ["OPENROUTER_API_KEY"],
+                    api_key=api_key,
                     messages=api_messages,
                     tools=active_tools,
-                    temperature=self.settings["temperature"],
-                    max_tokens=self.settings["max_tokens"],
+                    temperature=self.settings.get("temperature", 0.7),
+                    max_tokens=token_limit * 2,
                     timeout=300.0
                 )
 
@@ -573,7 +776,17 @@ class AgentWorker(QThread):
 
                     # PARALLEL TOOL EXECUTION
                     with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future_to_tc = {executor.submit(execute_tool, tc.function.name, tc.function.arguments): tc for tc in msg.tool_calls}
+                        future_to_tc = {}
+                        for tc in msg.tool_calls:
+                            t_name = tc.function.name
+                            
+                            # INTERCEPT DISABLED TOOLS
+                            if not self.settings.get("enable_browser", True) and t_name.startswith("browser_"):
+                                future_to_tc[executor.submit(lambda n=t_name: f"Error: Tool '{n}' is DISABLED in settings. Do NOT use browser tools.", t_name)] = tc
+                            elif not self.settings.get("enable_basic_search", True) and t_name in ["web_search", "scrape_url"]:
+                                future_to_tc[executor.submit(lambda n=t_name: f"Error: Tool '{n}' is DISABLED in settings. Use browser tools instead.", t_name)] = tc
+                            else:
+                                future_to_tc[executor.submit(execute_tool, t_name, tc.function.arguments)] = tc
                         
                         results_dict = {}
                         for future in concurrent.futures.as_completed(future_to_tc):
@@ -626,11 +839,11 @@ class AgentWorker(QThread):
                         self.new_message.emit("tool", raw_tool_out, t_id)
                     
                     # --- NEW: MEMORY CONDENSATION TRIGGER ---
-                    # We trigger at TOKEN_LIMIT
-                    if total_tokens > TOKEN_LIMIT:
+                    # We trigger at token limit
+                    if total_tokens > token_limit:
                         self.status_update.emit("Context Limit Reached: Summarizing Memory...")
                         notify_id = str(uuid.uuid4())
-                        self.new_message.emit("assistant", f"🔄 **Context limit approaching (>{TOKEN_LIMIT} tokens).** Extracting memory into a detailed summary and swapping to a fresh instance...", notify_id)
+                        self.new_message.emit("assistant", f"🔄 **Context limit approaching (>{token_limit} tokens).** Extracting memory into a detailed summary and swapping to a fresh instance...", notify_id)
                         
                         # Build a clean native message history without images
                         summary_messages =[]
@@ -665,9 +878,9 @@ class AgentWorker(QThread):
                         
                         # Request the summary using native arrays
                         summary_res = completion(
-                            model=MODEL,
+                            model=litellm_model,
                             api_base="https://openrouter.ai/api/v1",
-                            api_key=os.environ["OPENROUTER_API_KEY"],
+                            api_key=api_key,
                             messages=summary_messages,
                             max_tokens=8000,
                             timeout=300.0
@@ -837,7 +1050,15 @@ class KaptchaApp(QMainWindow):
         set_dark_titlebar(self)
         
         self.attached_files =[]
-        self.app_settings = {"temperature": 0.5, "max_tokens": 64000, "enable_basic_search": False, "show_thoughts": True}
+        self.app_settings = {
+            "api_key": "",
+            "model": "openai/moonshotai/kimi-k2.6:nitro",
+            "temperature": 0.5, 
+            "token_limit": 50000, 
+            "enable_basic_search": False, 
+            "show_thoughts": True,
+            "enable_browser": True
+        }
         self.load_settings()
 
         self.worker = None
@@ -852,6 +1073,9 @@ class KaptchaApp(QMainWindow):
         self.apply_production_theme()
         self.setup_ui()
         self.new_chat()
+        
+        if self.app_settings.get("enable_browser", True):
+            threading.Thread(target=execute_tool, args=("browser_get_view", "{}"), daemon=True).start()
 
     def get_system_prompt(self):
         return {"role": "system", "content": """
@@ -1007,6 +1231,8 @@ class KaptchaApp(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         
         top_bar = QHBoxLayout()
+        top_bar.setContentsMargins(15, 8, 15, 5)
+        
         self.status_label = QLabel("READY")
         self.status_label.setObjectName("headerLabel")
         top_bar.addWidget(self.status_label)
@@ -1253,6 +1479,10 @@ class KaptchaApp(QMainWindow):
         if not self.attached_files: self.attachment_widget.hide()
 
     def send_user_message(self):
+        if not self.app_settings.get("api_key", "").strip():
+            msg_id = str(uuid.uuid4())
+            self.display_ai_message("assistant", "⚠️ **Configuration Error:** Please enter your OpenRouter API Key in the settings before chatting.", msg_id)
+            return
         if self.worker and self.worker.isRunning(): return
         
         raw_text = self.input_field.toPlainText().strip()
