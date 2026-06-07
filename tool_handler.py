@@ -49,32 +49,29 @@ class BrowserManager:
 
     def _run_browser(self):
         with sync_playwright() as p:
-            # Bypass Bot Detection
-            context = p.chromium.launch_persistent_context(
-                user_data_dir=str(BROWSER_DIR),
-                headless=False,
-                viewport={"width": 1280, "height": 800},
-                channel="chrome", 
-                args=['--disable-blink-features=AutomationControlled'],
-                ignore_default_args=['--enable-automation']
-            )
-            
-            # Hide webdriver from Javascript
-            context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-            
-            # Start at Google instead of about:blank (safely ignoring restored sessions)
-            if context.pages and context.pages[0].url == "about:blank":
-                context.pages[0].goto("https://google.com")
+            context = None
+
+            def start_context():
+                nonlocal context
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=str(BROWSER_DIR),
+                    headless=False,
+                    viewport={"width": 1280, "height": 800},
+                    channel="chrome", 
+                    args=['--disable-blink-features=AutomationControlled'],
+                    ignore_default_args=['--enable-automation']
+                )
+                context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+                if context.pages and context.pages[0].url == "about:blank":
+                    context.pages[0].goto("https://google.com")
+                return context
             
             while True:
                 try:
-                    # NON-BLOCKING GET: Does not freeze the OS thread
                     req = self.req_q.get_nowait()
                 except queue.Empty:
-                    # THE FIX: Yields control back to Playwright's event loop!
-                    # This allows the browser to process new tabs, network events, etc.
                     try:
-                        if context.pages:
+                        if context and context.pages:
                             context.pages[0].wait_for_timeout(100)
                         else:
                             import time
@@ -85,11 +82,20 @@ class BrowserManager:
                 
                 if req is None: break
                 cmd, kwargs = req
-
-                # Strip cmd
                 cmd = cmd.strip()
                 
                 try:
+                    if cmd == "close":
+                        if context:
+                            context.close()
+                            context = None
+                        if hasattr(self, 'active_page'): del self.active_page
+                        self.res_q.put("Browser window closed.")
+                        continue
+
+                    if context is None:
+                        context = start_context()
+
                     # 1. Initialize or update active page logic
                     if not hasattr(self, 'active_page'):
                         self.active_page = context.pages[-1] if context.pages else context.new_page()
@@ -564,6 +570,7 @@ def browser_wait(seconds):
     except Exception as e:
         return f"Error during wait: {str(e)}"
 
+def browser_close(): return browser_manager.execute("close")
 def browser_navigate(url): return browser_manager.execute("navigate", url=url)
 def browser_get_view(): return browser_manager.execute("get_view")
 def browser_click(element_id): return browser_manager.execute("click", element_id=element_id)
@@ -609,6 +616,7 @@ AVAILABLE_FUNCTIONS = {
     "browser_open_tab": browser_open_tab,
     "browser_close_tab": browser_close_tab,
     "browser_switch_tab": browser_switch_tab,
+    "browser_close": browser_close,
 }
 def execute_tool(tool_name, arguments_json):
     """Finds the requested tool, runs it, and returns the result as a string."""
