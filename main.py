@@ -1314,6 +1314,10 @@ class KaptchaApp(QMainWindow):
 
     # --- CHAT LOGIC ---
     def new_chat(self):
+        # Prevent creating a new chat if we are already on a blank chat
+        if hasattr(self, 'ui_messages') and len(self.ui_messages) == 0:
+            return
+
         # Forcefully detach the old worker and reset UI buttons
         if self.worker and self.worker.isRunning():
             self.worker.stop()
@@ -1329,7 +1333,7 @@ class KaptchaApp(QMainWindow):
         self.current_chat_id = "chat_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self.current_chat_title = "New Chat"
         self.messages = [self.get_system_prompt()]
-        self.ui_messages =[]
+        self.ui_messages = []
         if self.chat_loaded: self.refresh_ui()
 
         self.update_token_counter(0)
@@ -1354,6 +1358,14 @@ class KaptchaApp(QMainWindow):
 
     def save_current_chat(self):
         filepath = Path("chats") / f"{self.current_chat_id}.json"
+        
+        # Prevent saving empty chats to disk to avoid cluttering the sidebar
+        if len(self.ui_messages) == 0:
+            if filepath.exists():
+                filepath.unlink() # Cleanup if user deleted all messages
+            self.load_chat_list()
+            return
+            
         data = { "title": self.current_chat_title, "messages": self.messages, "ui_messages": self.ui_messages }
         with open(filepath, "w") as f: json.dump(data, f)
         self.load_chat_list()
